@@ -4,15 +4,17 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
+import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
 import android.graphics.Rect;
-import android.graphics.Typeface;
 import android.os.Handler;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
+
+import com.weigan.loopview.bean.Bean;
 
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -27,11 +29,16 @@ public class LoopView extends View {
 
     private float scaleX = 1.0F;
 
-    private static final int DEFAULT_TEXT_SIZE = (int) (Resources.getSystem().getDisplayMetrics().density * 15);
+    private static final int DEFAULT_FIRST_LINE_TEXT_SIZE = (int) (Resources.getSystem().getDisplayMetrics().density * 12);
+    private static final int DEFAULT_SECOND_LINE_TEXT_SIZE = (int) (Resources.getSystem().getDisplayMetrics().density * 15);
 
-    private static final float DEFAULT_LINE_SPACE = 2f;
+    private static final float DEFAULT_LINE_SPACE = 1f;
 
-    private static final int DEFAULT_VISIBIE_ITEMS = 9;
+    private static final int DEFAULT_VISIBLE_ITEMS = 9;
+
+    private static final int DEFAULT_SPACING_OF_FIRST_AND_SECOND = (int) (Resources.getSystem().getDisplayMetrics().density * 3);
+
+    private static final int DEFAULT_SPACINF_OF_FIRST_AND_IMG = (int) (Resources.getSystem().getDisplayMetrics().density * 5);
 
     public enum ACTION {
         CLICK, FLING, DAGGLE
@@ -47,14 +54,28 @@ public class LoopView extends View {
     ScheduledExecutorService mExecutor = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> mFuture;
 
-    private Paint mPaintOuterText;
-    private Paint mPaintCenterText;
+    private Paint mFirstLinePaintOuterText;
+    private Paint mFirstLinePaintCenterText;
+
+    private Paint mSecondLinePaintOuterText;
+    private Paint mSecondLinePaintCenterText;
+
+    private Paint mBitmapPaintOuter;
+    private Paint mBitmapPaintCenter;
+
     private Paint mPaintIndicator;
 
-    List<String> mItems;
+//    private Paint mTestPaint;
+//
+//    private Paint mTestPaint2;
 
-    int mTextSize;
-    int mMaxTextHeight;
+//    List<String> mItems;
+    List<Bean> mItems;
+
+    int mFirstLineTextSize;
+    int mSecondLineTextSize;
+
+    int mMaxItemHeight;
 
     int mOuterTextColor;
 
@@ -76,7 +97,8 @@ public class LoopView extends View {
 
     int mItemsVisibleCount;
 
-    String[] mDrawingStrings;
+//    String[] mDrawingStrings;
+    Bean[] mDrawingStrings;
 
     int mMeasuredHeight;
     int mMeasuredWidth;
@@ -92,6 +114,42 @@ public class LoopView extends View {
 
     private int mPaddingLeft, mPaddingRight;
 
+
+    //第一行图片与文字之间的间距
+    private int mSpacingOfFirstAndImg;
+
+    //第一行文字和第二行文字之间的间距
+    private int mSpacingOfFirstLineAndSecondLine;
+
+    //第一行文字的高度
+    private float mFirstLineStringHeight;
+
+    //第二行文字的高度
+    private float mSecondLineStingHeight;
+
+    //绘制第一行文字的Y
+    private float mFirstLineStringStartY;
+
+    //绘制第二行文字的Y
+    private float mSecondLineStringStartY;
+
+    float[] src = new float[]{
+            1, 0, 0, 0, 0,
+            0, 1, 0, 0, 0,
+            0, 0, 1, 0, 0,
+            0, 0, 0, 1, 0};
+
+    float[] white = new float[]{
+            1, 0, 0, 0, 255,
+            0, 1, 0, 0, 255,
+            0, 0, 1, 0, 255,
+            0, 0, 0, 1, 0};
+
+    float[] black = new float[]{
+            1, 0, 0, 0, -255,
+            0, 1, 0, 0, -255,
+            0, 0, 1, 0, -255,
+            0, 0, 0, 1, 0};
 
     /**
      * set text line space, must more than 1
@@ -110,7 +168,7 @@ public class LoopView extends View {
      */
     public void setCenterTextColor(int centerTextColor) {
         this.mCenterTextColor = centerTextColor;
-        mPaintCenterText.setColor(centerTextColor);
+        mSecondLinePaintCenterText.setColor(centerTextColor);
     }
 
     /**
@@ -119,7 +177,7 @@ public class LoopView extends View {
      */
     public void setOuterTextColor(int outerTextColor) {
         this.mOuterTextColor = outerTextColor;
-        mPaintOuterText.setColor(outerTextColor);
+        mSecondLinePaintOuterText.setColor(outerTextColor);
     }
 
     /**
@@ -155,20 +213,27 @@ public class LoopView extends View {
         mFlingGestureDetector.setIsLongpressEnabled(false);
 
         TypedArray typedArray = context.obtainStyledAttributes(attributeset, R.styleable.androidWheelView);
-        mTextSize = typedArray.getInteger(R.styleable.androidWheelView_awv_textsize, DEFAULT_TEXT_SIZE);
-        mTextSize = (int) (Resources.getSystem().getDisplayMetrics().density * mTextSize);
+        mSecondLineTextSize = typedArray.getInteger(R.styleable.androidWheelView_awv_textsize, DEFAULT_SECOND_LINE_TEXT_SIZE);
+//        mSecondLineTextSize = (int) (Resources.getSystem().getDisplayMetrics().density * mSecondLineTextSize);
         mLineSpacingMultiplier = typedArray.getFloat(R.styleable.androidWheelView_awv_lineSpace, DEFAULT_LINE_SPACE);
         mCenterTextColor = typedArray.getInteger(R.styleable.androidWheelView_awv_centerTextColor, 0xff313131);
         mOuterTextColor = typedArray.getInteger(R.styleable.androidWheelView_awv_outerTextColor, 0xffafafaf);
         mDividerColor = typedArray.getInteger(R.styleable.androidWheelView_awv_dividerTextColor, 0xffc5c5c5);
-        mItemsVisibleCount = typedArray.getInteger(R.styleable.androidWheelView_awv_itemsVisibleCount, DEFAULT_VISIBIE_ITEMS);
+        mItemsVisibleCount = typedArray.getInteger(R.styleable.androidWheelView_awv_itemsVisibleCount, DEFAULT_VISIBLE_ITEMS);
         if (mItemsVisibleCount % 2 == 0) {
-            mItemsVisibleCount = DEFAULT_VISIBIE_ITEMS;
+            mItemsVisibleCount = DEFAULT_VISIBLE_ITEMS;
         }
         isLoop = typedArray.getBoolean(R.styleable.androidWheelView_awv_isLoop, true);
         typedArray.recycle();
 
-        mDrawingStrings = new String[mItemsVisibleCount];
+        mFirstLineTextSize = DEFAULT_FIRST_LINE_TEXT_SIZE;
+//        mDrawingStrings = new String[mItemsVisibleCount];
+
+        mSpacingOfFirstAndImg = DEFAULT_SPACINF_OF_FIRST_AND_IMG;
+
+        mSpacingOfFirstLineAndSecondLine = DEFAULT_SPACING_OF_FIRST_AND_SECOND;
+
+        mDrawingStrings = new Bean[mItemsVisibleCount];
 
         mTotalScrollY = 0;
         mInitPosition = -1;
@@ -188,28 +253,50 @@ public class LoopView extends View {
         }
         if (visibleNumber != mItemsVisibleCount) {
             mItemsVisibleCount = visibleNumber;
-            mDrawingStrings = new String[mItemsVisibleCount];
+//            mDrawingStrings = new String[mItemsVisibleCount];
+            mDrawingStrings = new Bean[mItemsVisibleCount];
         }
     }
 
 
     private void initPaints() {
-        mPaintOuterText = new Paint();
-        mPaintOuterText.setColor(mOuterTextColor);
-        mPaintOuterText.setAntiAlias(true);
-        mPaintOuterText.setTypeface(Typeface.MONOSPACE);
-        mPaintOuterText.setTextSize(mTextSize);
+        mSecondLinePaintOuterText = new Paint();
+        mSecondLinePaintOuterText.setColor(mOuterTextColor);
+        mSecondLinePaintOuterText.setAntiAlias(true);
+//        mSecondLinePaintOuterText.setTypeface(Typeface.MONOSPACE);
+        mSecondLinePaintOuterText.setTextSize(mSecondLineTextSize);
 
-        mPaintCenterText = new Paint();
-        mPaintCenterText.setColor(mCenterTextColor);
-        mPaintCenterText.setAntiAlias(true);
-        mPaintCenterText.setTextScaleX(scaleX);
-        mPaintCenterText.setTypeface(Typeface.MONOSPACE);
-        mPaintCenterText.setTextSize(mTextSize);
+        mFirstLinePaintOuterText = new Paint(mSecondLinePaintOuterText);
+        mFirstLinePaintOuterText.setTextSize(mFirstLineTextSize);
+
+        mBitmapPaintOuter = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mBitmapPaintOuter.setColorFilter(new ColorMatrixColorFilter(black));
+
+        mSecondLinePaintCenterText = new Paint();
+        mSecondLinePaintCenterText.setColor(mCenterTextColor);
+        mSecondLinePaintCenterText.setAntiAlias(true);
+//        mSecondLinePaintCenterText.setTextScaleX(scaleX);
+//        mSecondLinePaintCenterText.setTypeface(Typeface.MONOSPACE);
+        mSecondLinePaintCenterText.setTextSize(mSecondLineTextSize);
+
+        mFirstLinePaintCenterText = new Paint(mSecondLinePaintCenterText);
+        mFirstLinePaintCenterText.setTextSize(mFirstLineTextSize);
+
+        mBitmapPaintCenter = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mBitmapPaintCenter.setColorFilter(new ColorMatrixColorFilter(black));
 
         mPaintIndicator = new Paint();
         mPaintIndicator.setColor(mDividerColor);
         mPaintIndicator.setAntiAlias(true);
+
+
+//        mTestPaint = new Paint();
+//        mTestPaint.setColor(Color.RED);
+//        mTestPaint.setAntiAlias(true);
+//
+//        mTestPaint2 = new Paint();
+//        mTestPaint2.setColor(Color.BLUE);
+//        mTestPaint2.setAntiAlias(true);
 
     }
 
@@ -231,20 +318,23 @@ public class LoopView extends View {
 
         mMeasuredWidth = mMeasuredWidth - mPaddingRight;
 
-        mPaintCenterText.getTextBounds("\u661F\u671F", 0, 2, mTempRect); // 星期
-        mMaxTextHeight = mTempRect.height();
+//        mSecondLinePaintCenterText.getTextBounds("\u661F\u671F", 0, 2, mTempRect); // 星期
+//        mMaxItemHeight = mTempRect.height();
         mHalfCircumference = (int) (mMeasuredHeight * Math.PI / 2);
 
-        //根据圆的半周长，计算最大的文本高度
-        mMaxTextHeight = (int) (mHalfCircumference / (mLineSpacingMultiplier * (mItemsVisibleCount - 1)));
+        //根据圆的半周长，计算最大的item高度
+        mMaxItemHeight = (int) (mHalfCircumference / (mLineSpacingMultiplier * (mItemsVisibleCount - 1)));
 
         //半径
         mRadius = mMeasuredHeight / 2;
 
         //第一条线的位置，控件的高度减去中间最大的条目的高度，再除以2
-        mFirstLineY = (int) ((mMeasuredHeight - mLineSpacingMultiplier * mMaxTextHeight) / 2.0F);
+        mFirstLineY = (int) ((mMeasuredHeight - mLineSpacingMultiplier * mMaxItemHeight) / 2.0F);
+        log(String.format("mFirstLineY : %s , mMeasuredHeight : %s , mLineSpacingMultiplier : %s ,mMaxItemHeight : %s  ",
+                mFirstLineY,mMeasuredHeight,mLineSpacingMultiplier, mMaxItemHeight));
+
         //第二条线的位置，直接用第一条线的位置加上中间最大的条目的高度不就好了
-        mSecondLineY = (int) ((mMeasuredHeight + mLineSpacingMultiplier * mMaxTextHeight) / 2.0F);
+        mSecondLineY = (int) ((mMeasuredHeight + mLineSpacingMultiplier * mMaxItemHeight) / 2.0F);
 
         if (mInitPosition == -1) {
             if (isLoop) {
@@ -255,12 +345,30 @@ public class LoopView extends View {
         }
 
         mPreCurrentIndex = mInitPosition;
+
+        Paint.FontMetrics firstFontMetrics = mFirstLinePaintCenterText.getFontMetrics();
+
+        mFirstLineStringHeight = firstFontMetrics.bottom - firstFontMetrics.top;
+
+        Paint.FontMetrics secondFontMetrics = mSecondLinePaintCenterText.getFontMetrics();
+
+        mSecondLineStingHeight = secondFontMetrics.bottom  - secondFontMetrics.top;
+
+        float contentHeight = mFirstLineStringHeight + mSecondLineStingHeight + mSpacingOfFirstLineAndSecondLine;
+
+        //计算第一行文字开始绘制的底部Y
+        mFirstLineStringStartY = mMaxItemHeight / 2 - contentHeight / 2 + mFirstLineStringHeight - firstFontMetrics.bottom;
+
+        //计算第二行文字开始绘制的底部Y
+        mSecondLineStringStartY = mMaxItemHeight / 2 + contentHeight / 2 - secondFontMetrics.bottom;
+
+
     }
 
     void smoothScroll(ACTION action) {
         cancelFuture();
         if (action == ACTION.FLING || action == ACTION.DAGGLE) {
-            float itemHeight = mLineSpacingMultiplier * mMaxTextHeight;
+            float itemHeight = mLineSpacingMultiplier * mMaxItemHeight;
             mOffset = (int) ((mTotalScrollY % itemHeight + itemHeight) % itemHeight);
             if ((float) mOffset > itemHeight / 2.0F) {
                 mOffset = (int) (itemHeight - (float) mOffset);
@@ -275,7 +383,7 @@ public class LoopView extends View {
         cancelFuture();
         // mChange this number, can mChange fling speed
         int velocityFling = 10;
-        mFuture = mExecutor.scheduleWithFixedDelay(new InertiaTimerTask(this, velocityY), 0, velocityFling, TimeUnit.MILLISECONDS);
+//        mFuture = mExecutor.scheduleWithFixedDelay(new InertiaTimerTask(this, velocityY), 0, velocityFling, TimeUnit.MILLISECONDS);
     }
 
     public void cancelFuture() {
@@ -296,11 +404,11 @@ public class LoopView extends View {
      * set text size in dp
      * @param size
      */
-    public final void setTextSize(float size) {
+    public final void setSecondLineTextSize(float size) {
         if (size > 0.0F) {
-            mTextSize = (int) (mContext.getResources().getDisplayMetrics().density * size);
-            mPaintOuterText.setTextSize(mTextSize);
-            mPaintCenterText.setTextSize(mTextSize);
+            mSecondLineTextSize = (int) (mContext.getResources().getDisplayMetrics().density * size);
+            mSecondLinePaintOuterText.setTextSize(mSecondLineTextSize);
+            mSecondLinePaintCenterText.setTextSize(mSecondLineTextSize);
         }
     }
 
@@ -318,7 +426,13 @@ public class LoopView extends View {
         mOnItemSelectedListener = OnItemSelectedListener;
     }
 
-    public final void setItems(List<String> items) {
+//    public final void setItems(List<String> items) {
+//        this.mItems = items;
+//        remeasure();
+//        invalidate();
+//    }
+
+    public final void setItems(List<Bean> items) {
         this.mItems = items;
         remeasure();
         invalidate();
@@ -364,6 +478,7 @@ public class LoopView extends View {
         }
     }
 
+    private Bean mBean = new Bean("","",null);
 
     @Override
     protected void onDraw(Canvas canvas) {
@@ -371,8 +486,7 @@ public class LoopView extends View {
             return;
         }
 
-
-        mChange = (int) (mTotalScrollY / (mLineSpacingMultiplier * mMaxTextHeight));
+        mChange = (int) (mTotalScrollY / (mLineSpacingMultiplier * mMaxItemHeight));
         mPreCurrentIndex = mInitPosition + mChange % mItems.size();
 
         if (!isLoop) {
@@ -391,7 +505,7 @@ public class LoopView extends View {
             }
         }
 
-        int j2 = (int) (mTotalScrollY % (mLineSpacingMultiplier * mMaxTextHeight));
+        int j2 = (int) (mTotalScrollY % (mLineSpacingMultiplier * mMaxItemHeight));
         // put value to drawingString
         int k1 = 0;
         while (k1 < mItemsVisibleCount) {
@@ -405,14 +519,22 @@ public class LoopView extends View {
                 }
                 mDrawingStrings[k1] = mItems.get(l1);
             } else if (l1 < 0) {
-                mDrawingStrings[k1] = "";
+                mDrawingStrings[k1] = mBean;
             } else if (l1 > mItems.size() - 1) {
-                mDrawingStrings[k1] = "";
+                mDrawingStrings[k1] = mBean;
             } else {
                 mDrawingStrings[k1] = mItems.get(l1);
             }
             k1++;
         }
+
+//        canvas.drawRect(0,0,mMeasuredWidth,mMeasuredHeight,mTestPaint2);
+
+//        canvas.drawLine(0,0,0,mMeasuredHeight,mTestPaint2);
+//        canvas.drawLine(0,0,mMeasuredWidth,0,mTestPaint2);
+//        canvas.drawLine(mMeasuredWidth,0,mMeasuredWidth,mMeasuredHeight,mTestPaint2);
+//        canvas.drawLine(0,mMeasuredHeight,mMeasuredWidth,mMeasuredHeight,mTestPaint2);
+
         log(String.format("drawFirstLine : mPaddingLeft : %s , mFirstLineY : %s , mMeasuredWidth : %s , ", mPaddingLeft, mFirstLineY, mMeasuredWidth));
         canvas.drawLine(mPaddingLeft, mFirstLineY, mMeasuredWidth, mFirstLineY, mPaintIndicator);
         log(String.format("drawSecondLine : mPaddingLeft : %s , mSecondLineY : %s , mMeasuredWidth : %s , ", mPaddingLeft, mSecondLineY, mMeasuredWidth));
@@ -422,67 +544,203 @@ public class LoopView extends View {
         int i = 0;
         while (i < mItemsVisibleCount) {
             canvas.save();
-            float itemHeight = mMaxTextHeight * mLineSpacingMultiplier;
+            float itemHeight = mMaxItemHeight * mLineSpacingMultiplier;
             double radian = ((itemHeight * i - j2) * Math.PI) / mHalfCircumference;
-            log(String.format("i : %s , itemHeight : %s , radian : %s", i, itemHeight, radian));
+            log(String.format("i : %s , itemHeight : %s , radian : %s , j2 : %s , mTotalScrollY : %s ",
+                    i, itemHeight, radian,j2,mTotalScrollY));
             if (radian >= Math.PI || radian <= 0) {
                 canvas.restore();
             } else {
-                int translateY = (int) (mRadius - Math.cos(radian) * mRadius - (Math.sin(radian) * mMaxTextHeight) / 2D);
-                canvas.drawLine(0,translateY,mMeasuredWidth,translateY,mPaintIndicator);
+                int translateY = (int) (mRadius - Math.cos(radian) * mRadius - (Math.sin(radian) * itemHeight) / 2D);
+//                canvas.drawLine(0,translateY,mMeasuredWidth,translateY,mTestPaint);
                 log(String.format("i : %s , translateY : %s ", i, translateY));
                 canvas.translate(0.0F, translateY);
                 canvas.scale(1.0F, (float) Math.sin(radian));
-                String drawingString = mDrawingStrings[i];
+                Bean drawingString = mDrawingStrings[i];
                 log(String.format("i : %s , Math.sin(radian) : %s , drawingString : %s ", i, Math.sin(radian), drawingString));
-                int textX = getTextX(drawingString, mPaintOuterText, mTempRect);
-                int textX1 = getTextX(drawingString, mPaintCenterText, mTempRect);
-                if (translateY <= mFirstLineY && mMaxTextHeight + translateY >= mFirstLineY) {
+                int textX = getTextX(drawingString.getSecondLine(), mSecondLinePaintOuterText, mTempRect);
+                int textX1 = getTextX(drawingString.getSecondLine(), mSecondLinePaintCenterText, mTempRect);
+                if (translateY <= mFirstLineY && mMaxItemHeight + translateY >= mFirstLineY) {
                     // first divider
                     canvas.save();
                     log(String.format("i : %s , first divider mFirstLineY - translateY : %s ", i, (mFirstLineY - translateY)));
                     canvas.clipRect(0, 0, mMeasuredWidth, mFirstLineY - translateY);
-                    log(String.format("i : %s , first divider drawText textX : %s ,mMaxTextHeight : %s ", i, textX, mMaxTextHeight));
-                    canvas.drawText(drawingString, textX, mMaxTextHeight, mPaintOuterText);
+                    log(String.format("i : %s , first divider drawText textX : %s ,mMaxItemHeight : %s ", i, textX, mMaxItemHeight));
+//                    canvas.drawText(drawingString.getSecondLine(), textX, mMaxItemHeight, mSecondLinePaintOuterText);
+
+                    drawFirstLineImg(canvas,
+                            drawingString,
+                            mFirstLinePaintOuterText,
+                            mTempRect,
+                            drawingString.getFirtLine(),
+                            mBitmapPaintOuter);
+
+                    canvas.drawText(drawingString.getFirtLine(),
+                            getFirstLineTextX(drawingString.getFirtLine(), mFirstLinePaintOuterText, mTempRect,drawingString),
+                            mFirstLineStringStartY, mFirstLinePaintOuterText);
+
+                    canvas.drawText(drawingString.getSecondLine(),
+                            getTextX(drawingString.getSecondLine(),mSecondLinePaintOuterText,mTempRect),
+                            mSecondLineStringStartY,mSecondLinePaintOuterText);
+
+
                     canvas.restore();
+
+
                     canvas.save();
                     log(String.format("i : %s , first divider mFirstLineY - translateY : %s , itemHeight : %s ", i, (mFirstLineY - translateY), itemHeight));
                     canvas.clipRect(0, mFirstLineY - translateY, mMeasuredWidth, (int) (itemHeight));
-                    log(String.format("i : %s , first divider drawText textX1 : %s ,mMaxTextHeight : %s ", i, textX1, mMaxTextHeight));
-                    canvas.drawText(drawingString, textX1, mMaxTextHeight, mPaintCenterText);
+                    log(String.format("i : %s , first divider drawText textX1 : %s ,mMaxItemHeight : %s ", i, textX1, mMaxItemHeight));
+//                    canvas.drawText(drawingString.getSecondLine(), textX1, mMaxItemHeight, mSecondLinePaintCenterText);
+
+                    drawFirstLineImg(canvas,
+                            drawingString,
+                            mFirstLinePaintCenterText,
+                            mTempRect,
+                            drawingString.getFirtLine(),
+                            mBitmapPaintCenter);
+
+                    canvas.drawText(drawingString.getFirtLine(),
+                            getFirstLineTextX(drawingString.getFirtLine(), mFirstLinePaintCenterText, mTempRect,drawingString),
+                            mFirstLineStringStartY, mFirstLinePaintCenterText);
+
+
+                    canvas.drawText(drawingString.getSecondLine(),
+                            getTextX(drawingString.getSecondLine(),mSecondLinePaintCenterText,mTempRect),
+                            mSecondLineStringStartY,mSecondLinePaintCenterText);
+
+
                     canvas.restore();
-                } else if (translateY <= mSecondLineY && mMaxTextHeight + translateY >= mSecondLineY) {
+                } else if (translateY <= mSecondLineY && mMaxItemHeight + translateY >= mSecondLineY) {
                     // second divider
                     canvas.save();
                     log(String.format("i : %s , second divider mSecondLineY - translateY : %s ", i, (mSecondLineY - translateY)));
                     canvas.clipRect(0, 0, mMeasuredWidth, mSecondLineY - translateY);
-                    log(String.format("i : %s , second divider drawText textX1 : %s ,mMaxTextHeight : %s ", i, textX1, mMaxTextHeight));
-                    canvas.drawText(drawingString, textX1, mMaxTextHeight, mPaintCenterText);
+                    log(String.format("i : %s , second divider drawText textX1 : %s ,mMaxItemHeight : %s ", i, textX1, mMaxItemHeight));
+//                    canvas.drawText(drawingString.getSecondLine(), textX1, mMaxItemHeight, mSecondLinePaintCenterText);
+
+                    drawFirstLineImg(canvas,
+                            drawingString,
+                            mFirstLinePaintCenterText,
+                            mTempRect,
+                            drawingString.getFirtLine(),
+                            mBitmapPaintCenter);
+
+                    canvas.drawText(drawingString.getFirtLine(),
+                            getFirstLineTextX(drawingString.getFirtLine(), mFirstLinePaintCenterText, mTempRect,drawingString),
+                            mFirstLineStringStartY, mFirstLinePaintCenterText);
+
+
+                    canvas.drawText(drawingString.getSecondLine(),
+                            getTextX(drawingString.getSecondLine(),mSecondLinePaintCenterText,mTempRect),
+                            mSecondLineStringStartY,mSecondLinePaintCenterText);
+
                     canvas.restore();
+
+
                     canvas.save();
                     log(String.format("i : %s , second divider mSecondLineY - translateY : %s , itemHeight : %s ", i, (mSecondLineY - translateY), itemHeight));
                     canvas.clipRect(0, mSecondLineY - translateY, mMeasuredWidth, (int) (itemHeight));
-                    log(String.format("i : %s , second divider drawText textX : %s ,mMaxTextHeight : %s ", i, textX, mMaxTextHeight));
-                    canvas.drawText(drawingString, textX, mMaxTextHeight, mPaintOuterText);
+
+                    log(String.format("i : %s , second divider drawText textX : %s ,mMaxItemHeight : %s ", i, textX, mMaxItemHeight));
+//                    canvas.drawText(drawingString.getSecondLine(), textX, mMaxItemHeight, mSecondLinePaintOuterText);
+
+                    drawFirstLineImg(canvas,
+                            drawingString,
+                            mFirstLinePaintOuterText,
+                            mTempRect,
+                            drawingString.getFirtLine(),
+                            mBitmapPaintCenter);
+
+                    canvas.drawText(drawingString.getFirtLine(),
+                            getFirstLineTextX(drawingString.getFirtLine(), mFirstLinePaintOuterText, mTempRect,drawingString),
+                            mFirstLineStringStartY, mFirstLinePaintOuterText);
+
+                    canvas.drawText(drawingString.getSecondLine(),
+                            getTextX(drawingString.getSecondLine(),mSecondLinePaintOuterText,mTempRect),
+                            mSecondLineStringStartY,mSecondLinePaintOuterText);
+
                     canvas.restore();
-                } else if (translateY >= mFirstLineY && mMaxTextHeight + translateY <= mSecondLineY) {
+
+
+                } else if (translateY >= mFirstLineY && mMaxItemHeight + translateY <= mSecondLineY) {
                     // center item
                     log(String.format("i : %s , center item mMeasuredWidth : %s , itemHeight : %s", i, mMeasuredWidth , itemHeight));
                     canvas.clipRect(0, 0, mMeasuredWidth, (int) (itemHeight));
-                    log(String.format("i : %s , center item textX1 : %s , mMaxTextHeight : %s", i, textX1 , mMaxTextHeight));
-                    canvas.drawText(drawingString, textX1, mMaxTextHeight, mPaintCenterText);
+                    log(String.format("i : %s , center item textX1 : %s , mMaxItemHeight : %s", i, textX1 , mMaxItemHeight));
+//                    canvas.drawText(drawingString.getSecondLine(), textX1, mMaxItemHeight, mSecondLinePaintCenterText);
+
+
+                    drawFirstLineImg(canvas,
+                            drawingString,
+                            mFirstLinePaintCenterText,
+                            mTempRect,
+                            drawingString.getFirtLine(),
+                            mBitmapPaintCenter);
+
+                    canvas.drawText(drawingString.getFirtLine(),
+                            getFirstLineTextX(drawingString.getFirtLine(), mFirstLinePaintCenterText, mTempRect,drawingString),
+                            mFirstLineStringStartY, mFirstLinePaintCenterText);
+
+                    canvas.drawText(drawingString.getSecondLine(),
+                            getTextX(drawingString.getSecondLine(),mSecondLinePaintCenterText,mTempRect),
+                            mSecondLineStringStartY,mSecondLinePaintCenterText);
+
+
+
                     mSelectedItem = mItems.indexOf(drawingString);
                 } else {
                     // other item
                     log(String.format("i : %s , other item mMeasuredWidth : %s , itemHeight : %s", i, mMeasuredWidth , itemHeight));
                     canvas.clipRect(0, 0, mMeasuredWidth, (int) (itemHeight));
-                    log(String.format("i : %s , other item textX : %s , mMaxTextHeight : %s", i, textX , mMaxTextHeight));
-                    canvas.drawText(drawingString, textX, mMaxTextHeight, mPaintOuterText);
+                    log(String.format("i : %s , other item textX : %s , mMaxItemHeight : %s", i, textX , mMaxItemHeight));
+//                    canvas.drawText(drawingString.getSecondLine(), textX, mMaxItemHeight, mSecondLinePaintOuterText);
+
+
+                    drawFirstLineImg(canvas,
+                            drawingString,
+                            mFirstLinePaintOuterText,
+                            mTempRect,
+                            drawingString.getFirtLine(),
+                            mBitmapPaintOuter);
+
+
+                    canvas.drawText(drawingString.getFirtLine(),
+                            getFirstLineTextX(drawingString.getFirtLine(), mFirstLinePaintOuterText, mTempRect,drawingString),
+                            mFirstLineStringStartY, mFirstLinePaintOuterText);
+
+                    canvas.drawText(drawingString.getSecondLine(),
+                            getTextX(drawingString.getSecondLine(),mSecondLinePaintOuterText,mTempRect),
+                            mSecondLineStringStartY,mSecondLinePaintOuterText);
+
                 }
                 canvas.restore();
             }
             i++;
         }
+    }
+
+    private void drawFirstLineImg(Canvas canvas, Bean bean, Paint firstLineTextPaint, Rect rect, String content,Paint bitmapPaint) {
+        firstLineTextPaint.getTextBounds(content, 0, content.length(), rect);
+        int textWidth = rect.width();
+        int firstLineWidth = bean.getBitmapWidth() + mSpacingOfFirstAndImg + textWidth;
+        int imgStartX = mMeasuredWidth / 2 - firstLineWidth / 2;
+
+        int textHeight = rect.height();
+
+        float imgStartY = mFirstLineStringStartY + textHeight / 2 - bean.getBitmapHeight() / 2;
+
+        if (bean.getBitmap() != null) {
+            canvas.drawBitmap(bean.getBitmap(), imgStartX, imgStartY, bitmapPaint);
+        }
+    }
+
+    private int getFirstLineTextX(String content, Paint paint, Rect rect, Bean bean) {
+        paint.getTextBounds(content, 0, content.length(), rect);
+        int textWidth = rect.width();
+        int firstLineWidth = bean.getBitmapWidth() + mSpacingOfFirstAndImg + textWidth;
+        int imgStartX = mMeasuredWidth / 2 - firstLineWidth / 2;
+        return imgStartX + bean.getBitmapWidth() + mSpacingOfFirstAndImg;
     }
 
     // text start drawing position
@@ -503,7 +761,7 @@ public class LoopView extends View {
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         boolean eventConsumed = mFlingGestureDetector.onTouchEvent(event);
-        float itemHeight = mLineSpacingMultiplier * mMaxTextHeight;
+        float itemHeight = mLineSpacingMultiplier * mMaxItemHeight;
 
         switch (event.getAction()) {
             case MotionEvent.ACTION_DOWN:
@@ -541,9 +799,9 @@ public class LoopView extends View {
                     mOffset = (int) ((circlePosition - mItemsVisibleCount / 2) * itemHeight - extraOffset);
 
                     if ((System.currentTimeMillis() - mStartTime) > 120) {
-                        smoothScroll(ACTION.DAGGLE);
+//                        smoothScroll(ACTION.DAGGLE);
                     } else {
-                        smoothScroll(ACTION.CLICK);
+//                        smoothScroll(ACTION.CLICK);
                     }
                 }
                 break;
